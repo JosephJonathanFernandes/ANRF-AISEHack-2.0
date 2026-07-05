@@ -65,6 +65,28 @@ y_egc = train_egc['target'].values
 print(f'Tg  train: {len(train_tg):,}  test: {len(test_tg):,}')
 print(f'Egc train: {len(train_egc):,}  test: {len(test_egc):,}')
 
+def dimerize_smiles(smiles):
+    mol = Chem.MolFromSmiles(smiles)
+    if not mol: return smiles
+    dummies = [atom.GetIdx() for atom in mol.GetAtoms() if atom.GetAtomicNum() == 0]
+    if len(dummies) != 2:
+        return smiles
+    combo = Chem.CombineMols(mol, mol)
+    rwmol = Chem.RWMol(combo)
+    N = mol.GetNumAtoms()
+    d1_A, d0_B = dummies[1], dummies[0] + N
+    neigh_A = rwmol.GetAtomWithIdx(d1_A).GetNeighbors()[0].GetIdx()
+    neigh_B = rwmol.GetAtomWithIdx(d0_B).GetNeighbors()[0].GetIdx()
+    rwmol.AddBond(neigh_A, neigh_B, Chem.rdchem.BondType.SINGLE)
+    for idx in sorted([d1_A, d0_B], reverse=True):
+        rwmol.RemoveAtom(idx)
+    Chem.SanitizeMol(rwmol)
+    return Chem.MolToSmiles(rwmol)
+
+print('Dimerizing SMILES for chain context...')
+for df in [train_tg, train_egc, test_tg, test_egc]:
+    df['dimer_smiles'] = df['smiles'].apply(dimerize_smiles)
+
 # -----------------------------------------------------------------------------
 # 2. FEATURE ENGINEERING (RDKit, Morgan, MACCS)
 # -----------------------------------------------------------------------------
@@ -117,11 +139,11 @@ def apply_preprocessor(X_raw, preprocessor):
     X = X.reindex(columns=good_cols, fill_value=np.nan)
     return scaler.transform(imputer.transform(X))
 
-print('Featurizing tabular features...')
-X_tg_raw       = featurize(train_tg['smiles'].tolist())
-X_egc_raw      = featurize(train_egc['smiles'].tolist())
-X_tg_test_raw  = featurize(test_tg['smiles'].tolist())
-X_egc_test_raw = featurize(test_egc['smiles'].tolist())
+print('Featurizing tabular features (using dimers)...')
+X_tg_raw       = featurize(train_tg['dimer_smiles'].tolist())
+X_egc_raw      = featurize(train_egc['dimer_smiles'].tolist())
+X_tg_test_raw  = featurize(test_tg['dimer_smiles'].tolist())
+X_egc_test_raw = featurize(test_egc['dimer_smiles'].tolist())
 
 X_tg,  tg_prep  = build_preprocessor(X_tg_raw)
 X_egc, egc_prep = build_preprocessor(X_egc_raw)
@@ -389,11 +411,11 @@ y_egc_scaler = StandardScaler()
 y_tg_scaled  = y_tg_scaler.fit_transform(y_tg.reshape(-1, 1)).ravel()
 y_egc_scaled = y_egc_scaler.fit_transform(y_egc.reshape(-1, 1)).ravel()
 
-print('\nBuilding graphs...')
-graphs_tg = [smiles_to_graph(s, y) for s, y in zip(train_tg['smiles'], y_tg_scaled)]
-graphs_tg_test = [smiles_to_graph(s) for s in test_tg['smiles']]
-graphs_egc = [smiles_to_graph(s, y) for s, y in zip(train_egc['smiles'], y_egc_scaled)]
-graphs_egc_test = [smiles_to_graph(s) for s in test_egc['smiles']]
+print('\nBuilding graphs (using dimers)...')
+graphs_tg = [smiles_to_graph(s, y) for s, y in zip(train_tg['dimer_smiles'], y_tg_scaled)]
+graphs_tg_test = [smiles_to_graph(s) for s in test_tg['dimer_smiles']]
+graphs_egc = [smiles_to_graph(s, y) for s, y in zip(train_egc['dimer_smiles'], y_egc_scaled)]
+graphs_egc_test = [smiles_to_graph(s) for s in test_egc['dimer_smiles']]
 
 GNN_SEEDS = [42, 7, 123]
 
