@@ -297,7 +297,7 @@ test_ec_egc = np.mean(chemberta_test_egc_embs_all, axis=0)
 print('\n' + '=' * 60)
 print('  PolyBERT Fine-tuning & Embedding Extraction')
 print('=' * 60)
-polybert_model = "kuelumbus/polyBERT"
+polybert_model = "xushijie/polyBERT"
 
 polybert_oof_tg_all, polybert_test_tg_all = [], []
 polybert_oof_tg_embs_all, polybert_test_tg_embs_all = [], []

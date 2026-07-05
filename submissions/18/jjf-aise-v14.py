@@ -132,7 +132,7 @@ X_egc_test = apply_preprocessor(X_egc_test_raw, egc_prep)
 # 3. POLYBERT FINE-TUNING (ENSEMBLE SEEDS + EMBEDDING EXTRACTION)
 # -----------------------------------------------------------------------------
 print('\nPreparing PolyBERT...')
-model_name = "kuelumbus/polyBERT"
+model_name = "xushijie/polyBERT"
 
 class SmilesDataset(Dataset):
     def __init__(self, smiles, tokenizer, targets=None, max_len=128):
