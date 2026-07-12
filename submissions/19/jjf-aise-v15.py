@@ -1,6 +1,7 @@
 # !pip install rdkit torch torch_geometric transformers -q
 
 import os
+import glob
 import pandas as pd
 import numpy as np
 import warnings
@@ -127,6 +128,48 @@ X_tg,  tg_prep  = build_preprocessor(X_tg_raw)
 X_egc, egc_prep = build_preprocessor(X_egc_raw)
 X_tg_test  = apply_preprocessor(X_tg_test_raw,  tg_prep)
 X_egc_test = apply_preprocessor(X_egc_test_raw, egc_prep)
+
+# -----------------------------------------------------------------------------
+# CHECKPOINTING: dump each component's OOF+test preds as it finishes, and
+# rebuild submission.csv from whatever's done so far using the *same*
+# SLSQP-optimized-weight ensembling as the final step (section 6), just
+# fit over the subset of components that exist at that point in time.
+# -----------------------------------------------------------------------------
+CKPT_DIR = 'outputs/ckpt'
+os.makedirs(CKPT_DIR, exist_ok=True)
+
+def find_best_weights(parts, y_true):
+    stack = np.column_stack(parts)
+    def neg_r2(w):
+        return -r2_score(y_true, stack @ w)
+    n = len(parts)
+    res = minimize(
+        neg_r2, x0=[1/n]*n, method='SLSQP',
+        bounds=[(0, 1)] * n,
+        constraints={'type': 'eq', 'fun': lambda w: w.sum() - 1}
+    )
+    return res.x
+
+def checkpoint(name, oof_preds, test_preds):
+    np.save(f'{CKPT_DIR}/{name}_oof.npy', oof_preds)
+    np.save(f'{CKPT_DIR}/{name}_test.npy', test_preds)
+    ready = True
+    for suffix, y_true in (('tg', y_tg), ('egc', y_egc)):
+        oof_files = sorted(glob.glob(f'{CKPT_DIR}/*_{suffix}_oof.npy'))
+        if not oof_files:
+            ready = False
+            continue
+        oof_parts  = [np.load(f) for f in oof_files]
+        test_parts = [np.load(f.replace('_oof.npy', '_test.npy')) for f in oof_files]
+        w = find_best_weights(oof_parts, y_true) if len(oof_parts) > 1 else np.array([1.0])
+        globals()[f'_ckpt_{suffix}'] = np.column_stack(test_parts) @ w
+    if ready:
+        sub = pd.concat([
+            test_tg[['id']].assign(target=globals()['_ckpt_tg']),
+            test_egc[['id']].assign(target=globals()['_ckpt_egc']),
+        ]).sort_values('id').reset_index(drop=True)
+        sub.to_csv('outputs/submission_v15.csv', index=False)
+        print(f'  [checkpoint] weighted partial submission saved after "{name}"')
 
 # -----------------------------------------------------------------------------
 # 3. TRANSFORMER FINE-TUNING (ENSEMBLE SEEDS + EMBEDDING EXTRACTION)
@@ -277,6 +320,7 @@ oof_c_tg  = np.mean(chemberta_oof_tg_all,  axis=0)
 test_c_tg = np.mean(chemberta_test_tg_all, axis=0)
 oof_ec_tg = np.mean(chemberta_oof_tg_embs_all, axis=0)
 test_ec_tg = np.mean(chemberta_test_tg_embs_all, axis=0)
+checkpoint('chemberta_tg', oof_c_tg, test_c_tg)
 
 chemberta_oof_egc_all, chemberta_test_egc_all = [], []
 chemberta_oof_egc_embs_all, chemberta_test_egc_embs_all = [], []
@@ -291,6 +335,7 @@ oof_c_egc  = np.mean(chemberta_oof_egc_all,  axis=0)
 test_c_egc = np.mean(chemberta_test_egc_all, axis=0)
 oof_ec_egc = np.mean(chemberta_oof_egc_embs_all, axis=0)
 test_ec_egc = np.mean(chemberta_test_egc_embs_all, axis=0)
+checkpoint('chemberta_egc', oof_c_egc, test_c_egc)
 
 
 # ----------------- PolyBERT -----------------
@@ -312,6 +357,7 @@ oof_p_tg  = np.mean(polybert_oof_tg_all,  axis=0)
 test_p_tg = np.mean(polybert_test_tg_all, axis=0)
 oof_ep_tg = np.mean(polybert_oof_tg_embs_all, axis=0)
 test_ep_tg = np.mean(polybert_test_tg_embs_all, axis=0)
+checkpoint('polybert_tg', oof_p_tg, test_p_tg)
 
 polybert_oof_egc_all, polybert_test_egc_all = [], []
 polybert_oof_egc_embs_all, polybert_test_egc_embs_all = [], []
@@ -326,6 +372,7 @@ oof_p_egc  = np.mean(polybert_oof_egc_all,  axis=0)
 test_p_egc = np.mean(polybert_test_egc_all, axis=0)
 oof_ep_egc = np.mean(polybert_oof_egc_embs_all, axis=0)
 test_ep_egc = np.mean(polybert_test_egc_embs_all, axis=0)
+checkpoint('polybert_egc', oof_p_egc, test_p_egc)
 
 
 # -----------------------------------------------------------------------------
@@ -486,6 +533,7 @@ for seed in GNN_SEEDS:
 
 oof_g_tg  = np.mean(gnn_oof_tg_all,  axis=0)
 test_g_tg = np.mean(gnn_test_tg_all, axis=0)
+checkpoint('gnn_tg', oof_g_tg, test_g_tg)
 
 gnn_oof_egc_all, gnn_test_egc_all = [], []
 for seed in GNN_SEEDS:
@@ -496,6 +544,7 @@ for seed in GNN_SEEDS:
 
 oof_g_egc  = np.mean(gnn_oof_egc_all,  axis=0)
 test_g_egc = np.mean(gnn_test_egc_all, axis=0)
+checkpoint('gnn_egc', oof_g_egc, test_g_egc)
 
 
 # -----------------------------------------------------------------------------
@@ -580,6 +629,8 @@ oof_l_tg  = np.mean([p[0] for p in tg_oof_parts_all],  axis=0)
 oof_x_tg  = np.mean([p[1] for p in tg_oof_parts_all],  axis=0)
 test_l_tg = np.mean([p[0] for p in tg_test_parts_all], axis=0)
 test_x_tg = np.mean([p[1] for p in tg_test_parts_all], axis=0)
+checkpoint('lgbm_tg', oof_l_tg, test_l_tg)
+checkpoint('xgb_tg', oof_x_tg, test_x_tg)
 
 X_egc_comb = np.hstack([X_egc, oof_ec_egc, oof_ep_egc])
 X_egc_test_comb = np.hstack([X_egc_test, test_ec_egc, test_ep_egc])
@@ -594,22 +645,12 @@ oof_l_egc  = np.mean([p[0] for p in egc_oof_parts_all],  axis=0)
 oof_x_egc  = np.mean([p[1] for p in egc_oof_parts_all],  axis=0)
 test_l_egc = np.mean([p[0] for p in egc_test_parts_all], axis=0)
 test_x_egc = np.mean([p[1] for p in egc_test_parts_all], axis=0)
+checkpoint('lgbm_egc', oof_l_egc, test_l_egc)
+checkpoint('xgb_egc', oof_x_egc, test_x_egc)
 
 # -----------------------------------------------------------------------------
 # 6. ENSEMBLE WEIGHT OPTIMIZATION
 # -----------------------------------------------------------------------------
-def find_best_weights(parts, y_true):
-    stack = np.column_stack(parts)
-    def neg_r2(w):
-        return -r2_score(y_true, stack @ w)
-    n = len(parts)
-    res = minimize(
-        neg_r2, x0=[1/n]*n, method='SLSQP',
-        bounds=[(0, 1)] * n,
-        constraints={'type': 'eq', 'fun': lambda w: w.sum() - 1}
-    )
-    return res.x
-
 w_tg  = find_best_weights((oof_l_tg, oof_x_tg, oof_g_tg, oof_c_tg, oof_p_tg),   y_tg)
 w_egc = find_best_weights((oof_l_egc, oof_x_egc, oof_g_egc, oof_c_egc, oof_p_egc), y_egc)
 
