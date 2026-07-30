@@ -208,24 +208,23 @@ display(tt_pct.round(2))
 """))
 
     # ----------------------------------------------------
-    # Cell 9: Markdown - SMILES Overlap and Leakage Analysis
+    # Cell 9: Markdown - SMILES and Target Type Overlap and Leakage Analysis
     # ----------------------------------------------------
-    cells.append(nbf.v4.new_markdown_cell("""## 4. SMILES Overlap and Leakage Analysis
-Here we analyze the SMILES strings:
-1. **Uniqueness**: How many unique SMILES strings are in each split?
-2. **Duplicate SMILES**: Do we have duplicates inside the same split? If yes, are the targets consistent?
-3. **Train-Test Overlap (Data Leakage)**: Is the test set SMILES present in the training set?
-   - R1 Train vs. R1 Test
-   - R2 Train vs. R2 Test
-4. **Cross-Round Overlap**:
-   - How much of R2 Train is from R1 Train?
-   - Is R1 Test present in R2 Train? (Common if datasets were re-split).
-   - Is R2 Test present in R1 Train? (Very critical: if R2 Test was in R1 Train, then models trained on R1 Train will have leaked R2 Test).
-5. **PI1M Coverage**: What fraction of our R1 and R2 SMILES are found in the 1M background dataset?
+    cells.append(nbf.v4.new_markdown_cell("""## 4. SMILES & Property Overlap and Leakage Analysis
+Here we analyze dataset overlaps in two ways:
+1. **SMILES-Only Overlaps**: We look at the overlap of chemical structures. 
+2. **(SMILES, Target Type) Pair Overlaps**: This is the **true representation of data leakage**. Since this is a multi-task dataset (with properties like `tg`, `egc`, `eps`, etc.), the same chemical structure (SMILES) appearing in both Train and Test splits is *not* leakage as long as they represent different target properties. True leakage only occurs when the exact same `(smiles, target_type)` pair is present in both splits.
+
+We will calculate:
+- Uniqueness counts for both SMILES and (SMILES, Target Type) pairs.
+- Within-round leakage (Train vs. Test in both Round 1 and Round 2).
+- Cross-round leakage (Round 2 Test vs. Round 1 Train).
+- Consistency of target values for overlapping pairs.
+- Background PI1M dataset coverage.
 """))
 
     # ----------------------------------------------------
-    # Cell 10: Code - SMILES Overlap and Leakage
+    # Cell 10: Code - Overlap and Leakage Analysis
     # ----------------------------------------------------
     cells.append(nbf.v4.new_code_cell("""# Extract SMILES sets
 s1_tr = set(r1_train['smiles'].dropna())
@@ -234,6 +233,7 @@ s2_tr = set(r2_train['smiles'].dropna())
 s2_te = set(r2_test['smiles'].dropna())
 spi1m = set(pi1m['SMILES'].dropna())
 
+print("=== 1. UNIQUE SMILES OVERLAP ANALYSIS ===")
 print("--- Unique SMILES Counts ---")
 print(f"Round 1 Train: {len(s1_tr)} unique SMILES (out of {len(r1_train)} rows)")
 print(f"Round 1 Test:  {len(s1_te)} unique SMILES (out of {len(r1_test)} rows)")
@@ -247,26 +247,69 @@ print(f"Round 1 Train vs Test overlap: {len(leakage_r1)} SMILES")
 print(f"Round 2 Train vs Test overlap: {len(leakage_r2)} SMILES")
 
 print("\\n--- Cross-Round Overlap Analysis ---")
-print(f"R1 Train vs R2 Train overlap (How much R1 Train is in R2 Train): {len(s1_tr.intersection(s2_tr))} / {len(s1_tr)} ({len(s1_tr.intersection(s2_tr))/len(s1_tr)*100:.2f}%)")
-print(f"R1 Test vs R2 Train overlap (Did R1 Test move to R2 Train?): {len(s1_te.intersection(s2_tr))} / {len(s1_te)} ({len(s1_te.intersection(s2_tr))/len(s1_te)*100:.2f}%)")
-print(f"R2 Test vs R1 Train overlap (Potential leakage of R2 Test in R1 Train!): {len(s2_te.intersection(s1_tr))} / {len(s2_te)} ({len(s2_te.intersection(s1_tr))/len(s2_te)*100:.2f}%)")
-print(f"R2 Test vs R1 Test overlap: {len(s2_te.intersection(s1_te))} / {len(s2_te)} ({len(s2_te.intersection(s1_te))/len(s2_te)*100:.2f}%)")
+print(f"R1 Train vs R2 Train overlap: {len(s1_tr.intersection(s2_tr))} / {len(s1_tr)} ({len(s1_tr.intersection(s2_tr))/len(s1_tr)*100:.2f}%)")
+print(f"R1 Test vs R2 Train overlap:  {len(s1_te.intersection(s2_tr))} / {len(s1_te)} ({len(s1_te.intersection(s2_tr))/len(s1_te)*100:.2f}%)")
+print(f"R2 Test vs R1 Train overlap:  {len(s2_te.intersection(s1_tr))} / {len(s2_te)} ({len(s2_te.intersection(s1_tr))/len(s2_te)*100:.2f}%)")
+print(f"R2 Test vs R1 Test overlap:   {len(s2_te.intersection(s1_te))} / {len(s2_te)} ({len(s2_te.intersection(s1_te))/len(s2_te)*100:.2f}%)")
 
-print("\\n--- Background PI1M Dataset Overlap ---")
+print("\\n=== 2. UNIQUE (SMILES, TARGET_TYPE) PAIR OVERLAP ANALYSIS ===")
+# Extract (smiles, target_type) sets
+def get_pairs(df):
+    return set(zip(df['smiles'].dropna(), df['target_type'].dropna()))
+
+p1_tr = get_pairs(r1_train)
+p1_te = get_pairs(r1_test)
+p2_tr = get_pairs(r2_train)
+p2_te = get_pairs(r2_test)
+
+print("--- Unique (smiles, target_type) Pair Counts ---")
+print(f"Round 1 Train: {len(p1_tr)} unique pairs (out of {len(r1_train)} rows)")
+print(f"Round 1 Test:  {len(p1_te)} unique pairs (out of {len(r1_test)} rows)")
+print(f"Round 2 Train: {len(p2_tr)} unique pairs (out of {len(r2_train)} rows)")
+print(f"Round 2 Test:  {len(p2_te)} unique pairs (out of {len(r2_test)} rows)")
+
+print("\\n--- Within-Round (smiles, target_type) Overlaps (True Leakage) ---")
+print(f"Round 1 Train vs Test pair overlap: {len(p1_tr.intersection(p1_te))} pairs")
+print(f"Round 2 Train vs Test pair overlap: {len(p2_tr.intersection(p2_te))} pairs")
+
+print("\\n--- Cross-Round (smiles, target_type) Overlaps ---")
+print(f"R1 Train vs R2 Train: {len(p1_tr.intersection(p2_tr))} / {len(p1_tr)} ({len(p1_tr.intersection(p2_tr))/len(p1_tr)*100:.2f}%)")
+print(f"R1 Test vs R2 Train:  {len(p1_te.intersection(p2_tr))} / {len(p1_te)} ({len(p1_te.intersection(p2_tr))/len(p1_te)*100:.2f}%)")
+print(f"R2 Test vs R1 Train (True Leakage): {len(p2_te.intersection(p1_tr))} / {len(p2_te)} ({len(p2_te.intersection(p1_tr))/len(p2_te)*100:.2f}%)")
+print(f"R2 Test vs R1 Test:   {len(p2_te.intersection(p1_te))} / {len(p2_te)} ({len(p2_te.intersection(p1_te))/len(p2_te)*100:.2f}%)")
+
+print("\\n=== 3. TARGET VALUE CONSISTENCY ANALYSIS ===")
+# Merge on smiles and target_type
+merged_pairs = pd.merge(r1_train, r2_train, on=['smiles', 'target_type'], suffixes=('_r1', '_r2'))
+diff_targets = (merged_pairs['target_r1'] - merged_pairs['target_r2']).abs()
+print(f"Overlapping training records: {len(merged_pairs)}")
+print(f"Exact target matches (difference < 1e-5): {sum(diff_targets < 1e-5)} / {len(merged_pairs)} ({sum(diff_targets < 1e-5)/len(merged_pairs)*100:.2f}%)")
+if sum(diff_targets >= 1e-5) > 0:
+    print(f"Differing records count: {sum(diff_targets >= 1e-5)}")
+    # De-duplicate to see if they are just the cross-products of duplicates
+    merged_unique = pd.merge(
+        r1_train.drop_duplicates(subset=['smiles', 'target_type']), 
+        r2_train.drop_duplicates(subset=['smiles', 'target_type']), 
+        on=['smiles', 'target_type'], suffixes=('_r1', '_r2')
+    )
+    diff_unique = (merged_unique['target_r1'] - merged_unique['target_r2']).abs()
+    print(f"Unique overlapping pairs: {len(merged_unique)}")
+    print(f"Unique exact target matches (difference < 1e-5): {sum(diff_unique < 1e-5)} / {len(merged_unique)} ({sum(diff_unique < 1e-5)/len(merged_unique)*100:.2f}%)")
+    print(f"Differing unique pairs: {sum(diff_unique >= 1e-5)} (Note: these differences correspond to duplicate resolution variations)")
+
+print("\\n=== 4. BACKGROUND DATASET COVERAGE ===")
 print(f"R1 Train in PI1M: {len(s1_tr.intersection(spi1m))} / {len(s1_tr)} ({len(s1_tr.intersection(spi1m))/len(s1_tr)*100:.2f}%)")
 print(f"R1 Test in PI1M:  {len(s1_te.intersection(spi1m))} / {len(s1_te)} ({len(s1_te.intersection(spi1m))/len(s1_te)*100:.2f}%)")
 print(f"R2 Train in PI1M: {len(s2_tr.intersection(spi1m))} / {len(s2_tr)} ({len(s2_tr.intersection(spi1m))/len(s2_tr)*100:.2f}%)")
 print(f"R2 Test in PI1M:  {len(s2_te.intersection(spi1m))} / {len(s2_te)} ({len(s2_te.intersection(spi1m))/len(s2_te)*100:.2f}%)")
 
-print("\\n--- Duplicate SMILES with Conflicting Target Values ---")
+print("\\n=== 5. DUPLICATE RECORDS ANALYSIS ===")
 def check_duplicates_conflict(df, name):
-    # Group by smiles and target_type
     dupes = df[df.duplicated(subset=['smiles', 'target_type'], keep=False)]
     if len(dupes) == 0:
         print(f"No duplicates in {name} by (smiles, target_type).")
         return
     
-    # Calculate target range/std for duplicates
     stats_dupes = dupes.groupby(['smiles', 'target_type'])['target'].agg(['count', 'min', 'max', 'std']).reset_index()
     stats_dupes['diff'] = stats_dupes['max'] - stats_dupes['min']
     conflicting = stats_dupes[stats_dupes['diff'] > 1e-5]
@@ -280,6 +323,7 @@ def check_duplicates_conflict(df, name):
 check_duplicates_conflict(r1_train, "Round 1 Train")
 check_duplicates_conflict(r2_train, "Round 2 Train")
 """))
+
 
     # ----------------------------------------------------
     # Cell 11: Markdown - RDKit Chemical Descriptors and Properties

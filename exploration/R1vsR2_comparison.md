@@ -95,40 +95,51 @@ In Round 1, only two target properties were measured. Round 2 introduces five ne
 
 ---
 
-## 4. SMILES Overlap and Leakage Analysis
+## 4. SMILES & Property Overlap and Leakage Analysis
 
-### Unique SMILES counts:
-- **Round 1 Train**: 6,158 unique SMILES (out of 6,171 rows)
-- **Round 1 Test**: 4,111 unique SMILES (out of 4,115 rows)
-- **Round 2 Train**: 6,565 unique SMILES (out of 7,409 rows)
-- **Round 2 Test**: 4,497 unique SMILES (out of 4,940 rows)
+In molecular machine learning, it is common to analyze overlap solely by chemical structure (SMILES). However, in this multi-task setup (where molecules are evaluated for properties like `tg`, `egc`, `eps`, etc.), the same SMILES appearing in both Train and Test splits is **not** leakage as long as the target properties differ. 
 
-### Overlap Matrix (Unique SMILES)
-| Dataset Split | R1 Train | R1 Test | R2 Train | R2 Test | PI1M (1M background) |
-| :--- | :---: | :---: | :---: | :---: | :---: |
-| **R1 Train** | **6,158** | 5 | 3,761 (61.08%) | 2,502 (40.63%) | 99 (1.61%) |
-| **R1 Test** | 5 | **4,111** | 2,475 (60.20%) | 1,696 (41.26%) | 65 (1.58%) |
-| **R2 Train** | 3,761 | 2,475 | **6,565** | 457 (6.96%) | 167 (2.54%) |
-| **R2 Test** | 2,502 | 1,696 | 457 | **4,497** | 116 (2.58%) |
+True data leakage only occurs when the exact same combination of **`(SMILES, Target Type)`** is present in both splits.
 
-### Key Insights on Overlaps:
-1. **R1 Train vs. R2 Test Leakage**:
-   - **2,502** of the **4,497** unique SMILES in Round 2 Test (55.64%) are present in the Round 1 Train set.
-   - If a model was trained on the complete Round 1 Train set, it has already seen the structure of 55.64% of the Round 2 test set.
-2. **R2 Train vs. R2 Test Overlap**:
-   - There are **457** overlapping SMILES between R2 Train and R2 Test.
-   - In single-task models, this would be data leakage. In this multi-task setup, it indicates that the same polymer repeat unit has some of its properties in the Train set and other properties in the Test set.
-3. **PI1M Coverage**:
-   - Very few molecules (~1.6% in R1, ~2.5% in R2) are present in the PI1M background database. The competition molecules represent a highly customized chemical space, though PI1M could still serve for unsupervised representation pre-training due to its size.
+### A. Unique Counts Comparison
+* **SMILES Uniqueness**:
+  * **Round 1 Train**: 6,158 unique SMILES (out of 6,171 rows)
+  * **Round 1 Test**: 4,111 unique SMILES (out of 4,115 rows)
+  * **Round 2 Train**: 6,565 unique SMILES (out of 7,409 rows)
+  * **Round 2 Test**: 4,497 unique SMILES (out of 4,940 rows)
+* **(SMILES, Target Type) Pair Uniqueness**:
+  * **Round 1 Train**: 6,165 unique pairs (out of 6,171 rows)
+  * **Round 1 Test**: 4,115 unique pairs (out of 4,115 rows)
+  * **Round 2 Train**: 7,406 unique pairs (out of 7,409 rows)
+  * **Round 2 Test**: 4,938 unique pairs (out of 4,940 rows)
+
+### B. Overlap and Leakage Analysis
+Below is the comparison of overlaps between unique SMILES (structural overlap) vs. unique (SMILES, Target Type) pairs (true target leakage):
+
+| Overlap Context | Unique SMILES Overlap | Unique (SMILES, Target Type) Overlap | Interpretation & Impact |
+| :--- | :---: | :---: | :--- |
+| **R1 Train vs. R1 Test** *(Within Round 1)* | 5 | 1 (0.02% of R1 Test) | Negligible leakage. |
+| **R2 Train vs. R2 Test** *(Within Round 2)* | 457 | 2 (0.04% of R2 Test) | **Major Insight**: While 457 SMILES overlap structurally, **only 2 pairs** represent true target leakage. The other 455 overlaps represent the same polymer repeat units measured for *different properties* in Train and Test splits (standard multi-task data distribution). |
+| **R1 Train vs. R2 Train** *(Cross-Round Train)* | 3,761 (61.08%) | 3,719 (60.32% of R1 Train) | High carry-over of training instances between rounds. |
+| **R1 Test vs. R2 Train** *(Cross-Round Merge)* | 2,475 (60.20%) | 2,450 (59.54% of R1 Test) | Confirms that a large portion of the R1 Test set was merged into the R2 Train set. |
+| **R2 Test vs. R1 Train** *(Cross-Round Leakage)* | 2,502 (55.64%) | 2,448 (49.57% of R2 Test) | **Critical Leakage**: Nearly **half (49.57%)** of the evaluation targets in R2 Test are identical (SMILES, Target Type) pairs present in R1 Train. Models trained on R1 Train will have a pre-exposed performance boost on these targets. |
+| **R2 Test vs. R1 Test** *(Cross-Round Test)* | 1,696 (37.71%) | 1,666 (33.74% of R2 Test) | One-third of the R2 Test target pairs are identical to R1 Test targets. |
+| **PI1M Dataset Overlap** | R1 Train: 1.61%<br>R2 Train: 2.54% | N/A | Only a small fraction of competition SMILES are in the PI1M generative database, showing the dataset contains highly custom polymer structures. |
 
 ---
 
-## 5. Duplicate SMILES with Target Conflicts
+## 5. Duplicate Records & Target Consistency
 
+### A. Target Value Consistency
+For the **3,719** overlapping `(SMILES, Target Type)` pairs between Round 1 Train and Round 2 Train:
+* **3,716** pairs (**99.92%**) have **exactly identical** target values (difference < 1e-5).
+* The remaining **3** pairs differ slightly (maximum difference of 24.0) only because they represent duplicate experimental entries in the files that were resolved/ordered differently during subset extraction.
+* **Conclusion**: There are **no updates or revisions** to the target values themselves; the data carry-over is identical.
+
+### B. Within-Dataset Duplicates
 There are minor duplicate records inside the training sets with the same SMILES and target property but slightly different experimental values.
-
-- **Round 1 Train**: 6 conflicting groups (12 rows total). The largest target conflict is for `tg` where the same SMILES has target values of `262.0` and `286.0` (diff of `24.0`).
-- **Round 2 Train**: 3 conflicting groups (6 rows total). The largest conflict is a `tg` diff of `10.98`.
+* **Round 1 Train**: 6 duplicate pairs (12 rows total). Max target difference is 24.0 (for a `tg` value, e.g. 262.0 vs 286.0).
+* **Round 2 Train**: 3 duplicate pairs (6 rows total). Max target difference is 10.98.
 
 *Recommendation: For training single-task regression models, duplicates should be averaged or resolved by keeping the median value to remove experimental noise.*
 
