@@ -1,0 +1,163 @@
+# ANRF AISEHack 2.0 — Polymer Property Prediction
+
+Kaggle competition: predict two polymer properties from SMILES strings.
+Competition page: https://kaggle.com/competitions/aisehack-2-0
+
+---
+
+## Task
+
+Given a polymer's SMILES representation, predict:
+
+- **Tg** — glass transition temperature (°C), a measure of thermal stability
+- **Egc** — chain band gap (eV), a measure of electrical performance
+
+Both properties are predicted with separate models.
+Evaluation metric: **mean R² across Tg and Egc**.
+
+---
+
+## Data
+
+| File | Rows | Columns | Notes |
+|---|---|---|---|
+| `train.csv` | 6,171 | smiles, target, target_type | Tg: 4,143 rows · Egc: 2,028 rows |
+| `test.csv` | 4,115 | id, smiles, target_type | Tg: 2,763 · Egc: 1,352 |
+| `sample_submission.csv` | 4,115 | id, target | Format reference |
+| `base_line_model.ipynb` | — | — | Organiser baseline (Ridge regression) |
+
+Target ranges in train:
+- Tg: −118 °C to 490 °C, mean ≈ 140 °C
+- Egc: 0.10 eV to 9.86 eV, mean ≈ 4.53 eV
+
+The `target_type` column tells you which property each row belongs to. Train and test are split on this before any modelling.
+
+---
+
+## Our Approach
+
+**Notebook:** `polymer_lgbm_xgb_ensemble.ipynb`
+
+### Features
+
+Three molecular representations are computed from SMILES using RDKit and concatenated:
+
+| Representation | Size | What it captures |
+|---|---|---|
+| RDKit 2D descriptors | ~210 | Physicochemical properties: MW, logP, TPSA, ring counts, H-bond donors/acceptors, etc. |
+| Morgan fingerprints (ECFP4, radius=2) | 2048 bits | Circular substructures — local chemical environment of each atom |
+| MACCS keys | 167 bits | Standardised structural keys, widely used in cheminformatics |
+
+Raw total: ~2,400 features. Columns with >80% missing values or zero variance are dropped before training.
+
+### Preprocessing
+
+- `inf`/`-inf` → `NaN`
+- Median imputation (fitted on train, applied to test)
+- StandardScaler (fitted on train, applied to test)
+
+Preprocessors are fit per-property (Tg and Egc separately) to avoid leakage.
+
+### Models
+
+**LightGBM + XGBoost**, averaged 50/50.
+
+They use different tree-building algorithms (leaf-wise vs depth-wise), so their prediction errors are partially uncorrelated. Averaging reduces variance without increasing bias.
+
+Both are trained with 5-fold cross-validation and early stopping (patience=150 rounds).
+
+Key hyperparameters:
+
+```
+learning_rate    = 0.015
+n_estimators     = 3000  (with early stopping)
+subsample        = 0.8
+colsample_bytree = 0.45
+reg_alpha        = 0.1
+reg_lambda       = 1.0
+```
+
+Tg uses `num_leaves=127`; Egc uses `num_leaves=63` (Egc is a smoother target).
+
+### Why this beats the baseline
+
+The organiser baseline (Ridge regression) has two problems:
+
+1. It uses only the top 20 RDKit descriptors selected by Ridge coefficients — a weak selection method that discards structural fingerprint information entirely.
+2. Ridge can only learn linear relationships. Tg and Egc both depend on non-linear interactions between molecular features (chain flexibility, aromaticity, H-bonding patterns). Tree ensembles capture these naturally.
+
+---
+
+## Repo Structure
+
+```
+.
+├── README.md
+├── polymer_lgbm_xgb_ensemble.ipynb   ← our submission notebook
+├── base_line_model.ipynb             ← organiser baseline (reference)
+├── train.csv
+├── test.csv
+└── sample_submission.csv
+```
+
+---
+
+## Kaggle Rules (key points)
+
+- **No external data.** Only the competition CSVs may be used. All features are generated from SMILES in-notebook via RDKit — this is fully compliant.
+- **Notebook-only submissions.** Every submission must be backed by a Kaggle notebook. Link the notebook in the submission description and set that version as default/pinned.
+- **Reproducibility.** Set random seeds everywhere (`SEED = 42` throughout). The pinned notebook version must reproduce the submitted score when run end-to-end.
+- **Max 3 submissions/day. Select up to 2 final submissions.**
+- Max team size: 5.
+
+Full rules: https://kaggle.com/competitions/aisehack-2-0/rules
+
+---
+
+## Running the Notebook on Kaggle
+
+1. Create a new Kaggle notebook.
+2. Add the competition dataset as input (it will appear at `/kaggle/input/aisehack-2-0/`).
+3. Upload `polymer_lgbm_xgb_ensemble.ipynb` or paste the cells in.
+4. Run all cells. Expected runtime: ~45–60 mins on CPU.
+5. `submission.csv` is written to the working directory automatically.
+6. Submit → paste the notebook URL in the submission description → pin that version as default.
+
+**Estimated runtimes:**
+- Feature generation (all 4 splits): ~6–7 mins
+- 5-fold × 2 models × 2 targets (20 model fits): ~35–50 mins
+- Total: well within Kaggle's 9-hour limit
+
+---
+
+## Dependencies
+
+All available in the default Kaggle Python environment:
+
+```
+rdkit
+lightgbm
+xgboost
+scikit-learn
+pandas
+numpy
+matplotlib
+```
+
+No `pip install` needed on Kaggle.
+
+---
+
+## Things to Try Next
+
+If you want to push the score further (in rough order of expected impact):
+
+- **Optuna hyperparameter tuning** — wrap the CV loop, tune `num_leaves`, `learning_rate`, `colsample_bytree` per target. Adds ~30–60 min runtime.
+- **More fingerprint types** — RDKit topological fingerprints (`RDKitFP`), atom pair fingerprints. Adds diversity to the feature set.
+- **Stacking** — train a Ridge on `[oof_lgbm, oof_xgb]` to learn optimal blend weights instead of a fixed 50/50 split.
+- **Duplicate SMILES check** — some polymers may appear in both Tg and Egc subsets; encoding this as a feature could help.
+- **Target transformation** — check if log-transforming Tg improves fit (distribution is right-skewed).
+
+---
+
+Timeline: 24 June – 24 July 2026
