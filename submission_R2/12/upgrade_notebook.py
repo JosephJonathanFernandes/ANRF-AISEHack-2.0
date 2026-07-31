@@ -18,7 +18,9 @@ def upgrade_notebook(input_path, output_path):
         source = cell['source']
         if not imports_injected and any("import lightgbm" in line for line in source):
             print("Found imports cell, injecting MLPRegressor and SVR imports...")
-            # Insert at the end of the imports
+            # Insert at the end of the imports with a newline prefix just in case
+            if not cell['source'][-1].endswith('\n'):
+                cell['source'][-1] += '\n'
             cell['source'].append("from sklearn.neural_network import MLPRegressor\n")
             cell['source'].append("from sklearn.svm import SVR\n")
             imports_injected = True
@@ -29,7 +31,7 @@ def upgrade_notebook(input_path, output_path):
             new_source = []
             for line in source:
                 new_source.append(line)
-                if '"ridge": lambda: make_pipeline(' in line:
+                if 'RidgeCV(alphas=' in line:
                     new_source.append('        "mlp": lambda: make_pipeline(StandardScaler(), MLPRegressor(hidden_layer_sizes=(128, 64), learning_rate_init=0.005, max_iter=400, early_stopping=True, random_state=SEED)),\n')
                     new_source.append('        "svr": lambda: make_pipeline(StandardScaler(), SVR(C=1.0, epsilon=0.1)),\n')
                     models_injected = True

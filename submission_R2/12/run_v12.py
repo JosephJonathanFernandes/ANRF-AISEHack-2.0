@@ -24,9 +24,9 @@ def run_notebook(notebook_path):
         f.write(full_script)
         
     print(f"Running script...")
-    # Change to the directory of the script so relative paths in the notebook work correctly
-    script_dir = os.path.dirname(os.path.abspath(script_path))
-    subprocess.run([sys.executable, script_path], cwd=script_dir)
+    # Change to the project root so the script can find the dataset folder
+    project_root = os.path.abspath(os.path.join(os.path.dirname(script_path), "..", ".."))
+    subprocess.run([sys.executable, script_path], cwd=project_root)
     print("Done!")
 
 if __name__ == "__main__":

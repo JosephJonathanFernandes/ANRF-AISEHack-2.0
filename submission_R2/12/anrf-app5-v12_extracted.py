@@ -586,7 +586,8 @@ set_train_range(train, arch)
 train["fold"] = make_folds(train, N_FOLDS)   # same seed as NB02 -> Stage-A OOF aligns
 
 uniq = sorted(set(train.smiles) | set(test.smiles))
-pos = {s: i for i, s in enumerate(uniq)}from sklearn.neural_network import MLPRegressor
+pos = {s: i for i, s in enumerate(uniq)}
+from sklearn.neural_network import MLPRegressor
 from sklearn.svm import SVR
 
 
@@ -738,9 +739,9 @@ def stage_b_models(n):
             subsample=0.8, subsample_freq=1, reg_lambda=3.0 if small else 1.0,
             verbose=-1, n_jobs=-1, random_state=SEED),
         "ridge": lambda: make_pipeline(
+            StandardScaler(), RidgeCV(alphas=np.logspace(-3, 4, 30))),
         "mlp": lambda: make_pipeline(StandardScaler(), MLPRegressor(hidden_layer_sizes=(128, 64), learning_rate_init=0.005, max_iter=400, early_stopping=True, random_state=SEED)),
         "svr": lambda: make_pipeline(StandardScaler(), SVR(C=1.0, epsilon=0.1)),
-            StandardScaler(), RidgeCV(alphas=np.logspace(-3, 4, 30))),
     }
 
 
