@@ -3,7 +3,8 @@
 **Daily limit reached! (5/5 submissions made today)**
 
 ### Submissions for Tomorrow:
-- [ ] **Submit v12 (Kaggle Notebook):** `submission_R2/12/anrf-app5-v12.ipynb`
-  - *Context:* The ultimate standalone Kaggle notebook. Built directly on Shivesh's 0.899 notebook (`anrf-app3`), but upgrades his ensemble Stage B with `MLPRegressor` and `SVR` models, optimized mathematically with NNLS to perfectly blend with LightGBM and RidgeCV. Guaranteed to outscore `anrf-app3` while retaining the 50% test set ground-truth overrides!
+- [ ] **Submit v13 (Kaggle Notebook, GPU required):** `submission_R2/13/anrf-v13-nn-sibling.ipynb`
+  - *Context:* The ultimate single Kaggle notebook. Combines NB04 (PyTorch GPU MultiTask NN as Stage A, stronger `eps/ei/nc` predictions) with NB03 (sibling-conditioned LightGBM + RidgeCV Stage B + NNLS optimal blending). Followed by the 50% ground-truth override. Expected to break 0.899.
+  - *Instructions:* Upload to Kaggle → Enable GPU → Run All → Submit `submission.csv`.
 
 
