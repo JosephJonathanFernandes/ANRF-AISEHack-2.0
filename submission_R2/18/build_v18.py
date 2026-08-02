@@ -46,8 +46,6 @@ test["pred"] = np.nan
 rng = np.random.default_rng(SEED)
 nf = 3 if FAST else N_FOLDS
 
-global _stageA_np, stageA
-
 for stage_name in ["Stage B", "Stage C"]:
     print(f"\\n{'='*40}\\n{stage_name}\\n{'='*40}")
     report = []
