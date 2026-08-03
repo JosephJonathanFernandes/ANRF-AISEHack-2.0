@@ -1,0 +1,4 @@
+# Ignore model cache files
+*.pkl
+cache/
+__pycache__/
